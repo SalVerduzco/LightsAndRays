@@ -46,15 +46,17 @@ glm::vec3 topLeft;
 glm::vec3 topRight;
 
 //you may want to make these smaller for debugging purposes
-// #define WIDTH 640
-// #define HEIGHT 480
-#define WIDTH 128
-#define HEIGHT 96
+#define WIDTH 640
+#define HEIGHT 480
+//#define WIDTH 128
+// #define HEIGHT 96
 
 //the field of view of the camera
 #define fov 60.0
 
 unsigned char buffer[HEIGHT][WIDTH][3];
+
+float epsilon = 0.4f;
 
 
 struct Vertex
@@ -100,9 +102,12 @@ void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 //holds the "location" in the real world of a pixel
 std::vector<std::vector<glm::vec3> > pixelWorldVector;
+std::vector<std::vector<glm::vec3> > finalColor;
+
+
 void generatePixelWorld();
 
-glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightIndex);
+glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightIndex, bool& include_ambient);
 
 //MODIFY THIS FUNCTION
 void draw_scene()
@@ -116,9 +121,33 @@ void draw_scene()
     for(unsigned int y=0; y<HEIGHT; y++)
     {
       //TODO, run this for all lights, add contribution
-      glm::vec3 color = shootRay(x,y, 0);
-      unsigned char clr = static_cast<unsigned char>(color.x);
-      plot_pixel(x,y,255,color.x,color.x);
+      bool include_ambient = false;
+      glm::vec3 color = shootRay(x,y, 0, include_ambient);
+      //printf("color.y = %f\n", color.y);
+
+
+      if(include_ambient){
+        color.x += (ambient_light[0]);
+        color.y += ambient_light[1];
+        color.z += ambient_light[2];
+      } else {
+        //printf("no");
+      }
+
+
+      if(color.x > 1.0f){color.x = 1.0f;}
+      if(color.y > 1.0f){color.y = 1.0f;}
+      if(color.z > 1.0f){color.z = 1.0f;}
+
+
+      unsigned char red = static_cast<unsigned char>(color.x * 255.0f);
+      unsigned char green = static_cast<unsigned char>(color.y * 255.0f);
+      unsigned char blue = static_cast<unsigned char>(color.z * 255.0f);
+
+
+
+
+      plot_pixel(x, HEIGHT - y, red, green, blue);
 
     }
     glEnd();
@@ -128,26 +157,44 @@ void draw_scene()
 }
 
 
+void clearMyColorBuffer(){
+  for(int i = 0; i<HEIGHT; i++){
+    for(int j = 0; j<WIDTH; j++){
+      finalColor[i][j].x = 0.0f;
+      finalColor[i][j].y = 0.0f;
+      finalColor[i][j].z = 0.0f;
+    }
+  }
+}
+
+
 void initVector(){
+
+  finalColor.resize(HEIGHT);
   pixelWorldVector.resize(HEIGHT);
   for(int i = 0; i<HEIGHT; i++){
     pixelWorldVector[i].resize(WIDTH);
+    finalColor[i].resize(WIDTH);
   }
+
+
 }
 
 void generatePixelWorld(){
 
-  float aspect_ratio = WIDTH/HEIGHT;
-  float FOV = 60.0;
+  float widthF = WIDTH;
+  float heightF = HEIGHT;
+  float aspect_ratio = widthF/heightF;
+  float FOV = 60.0f;
   FOV = FOV * 0.0174533; //convert to rad
 
-  topLeft.x = -aspect_ratio * std::tan(FOV/2.0f);
+  topLeft.x = -aspect_ratio * tan(FOV/2.0f);
   topLeft.y = std::tan(FOV/2.0f);
-  topLeft.z = -1;
+  topLeft.z = -1.0f;
 
-  topRight.x = aspect_ratio * std::tan(FOV/2.0f);
+  topRight.x = aspect_ratio * tan(FOV/2.0f);
   topRight.y = std::tan(FOV/2.0f);
-  topRight.z = -1;
+  topRight.z = -1.0f;
 
   //now we push all the vectors, scanning left to right
   //and top to bottom
@@ -171,6 +218,8 @@ void generatePixelWorld(){
       //printf("x:%f y:%f z%f \n", travel_pixel.x, travel_pixel.y, travel_pixel.z);
 
     }
+    printf("travel.x = %f\n", travel_pixel.x);
+
     travel_pixel.x = topLeft.x; //reset x
     travel_pixel.y -= bottomHop; //go to lower row
   }
@@ -214,11 +263,11 @@ bool testIntersection(glm::vec3 origin, glm::vec3 ray){
     float t0 = (-b + term)/2;
     float t1 = (-b - term)/2;
 
-    if(t0 > 0 && t0 < t_min){
+    if(t0 > 0 && t0 < t_min && t0>epsilon){
       t_min = t0;
       index = i;
     } 
-    if(t1 > 0 && t1 < t_min){
+    if(t1 > 0 && t1 < t_min && t1>epsilon){
       t_min = t1;
       index = i;
     }
@@ -233,7 +282,7 @@ bool testIntersection(glm::vec3 origin, glm::vec3 ray){
 
 /* Shoot a ray from the camera location, to the pixel location, and return the 
 color for that pixel */
-glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightIndex){
+glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightIndex, bool& include_ambient){
   glm::vec3 cameraLocation(0.0f,0.0f,0.0f);
   glm::vec3 pixelLocation = pixelWorldVector[pixelY][pixelX];
   glm::vec3 ray = pixelLocation - cameraLocation;
@@ -242,6 +291,7 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
   //check for intersection with all circles 
   int index = -1;
   float t_min = FLT_MAX;
+  int type = 0; //0 = none, 1 = circle, 2 = triangle
   //printf("max: %f\n", t_min);
 
   for(int i = 0; i<num_spheres; i++){
@@ -250,13 +300,10 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
     float c_z = static_cast<float>(spheres[i].position[2]);
 
     //printf("cx:%f, cy:%f, cz:%f\n", c_x, c_y, c_z);
-
-
     float r = static_cast<float>(spheres[i].radius);
-
-    float x0 = 0;
-    float y0 = 0;
-    float z0 = 0;
+    float x0 = 0.0f;
+    float y0 = 0.0f;
+    float z0 = 0.0f;
 
     float b = 2*(viewRay.x*(x0 - c_x) + viewRay.y*(y0-c_y) + viewRay.z*(z0 - c_z));
     float c = ((x0 - c_x) * (x0 - c_x)) + ((y0 - c_y) * (y0 - c_y)) + 
@@ -272,19 +319,54 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
     float t0 = (-b + term)/2;
     float t1 = (-b - term)/2;
 
-    if(t0 > 0 && t0 < t_min){
+    if(t0 > 0 && t0 < t_min && t0 > epsilon){
       t_min = t0;
       index = i;
+      type = 1;
     } 
-    if(t1 > 0 && t1 < t_min){
+    if(t1 > 0 && t1 < t_min && t1 > epsilon){
       t_min = t1;
       index = i;
+      type = 1;
     }
   }
 
+  //TODO: Also check for triangles, and update t_min, type, and index
+
+  for(int i = 0; i<num_triangles; i++){
+            // struct Vertex
+            // {
+            //   double position[3];
+            //   double color_diffuse[3];
+            //   double color_specular[3];
+            //   double normal[3];
+            //   double shininess;
+            // };
+
+            // struct Triangle
+            // {
+            //   Vertex v[3];
+            // };
+    Triangle triangle = triangles[i];
+
+    //position on the place
+    glm::vec3 p0(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
+    glm::vec3 a = p0;
+    glm::vec3 b(triangle.v[1].position[0], triangle.v[1].position[1], triangle.v[1].position[2]);
+    glm::vec3 c(triangle.v[2].position[0], triangle.v[2].position[1], triangle.v[2].position[2]);
+
+
+
+  }
+
+  //after this if still index == -1, intersects nothing
+  //else send shadow ray from pos
+
   if(index == -1){
-    return glm::vec3(0,0,0);
+    return glm::vec3(1,1,1);
+    include_ambient = false;
   } else {
+    include_ambient = true;
     //calculate the value from lightIndex
 
     Light currLight = lights[lightIndex];
@@ -293,19 +375,67 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
                        currLight.position[1],
                        currLight.position[2]);
 
+    glm::vec3 lightColor(currLight.color[0],
+                         currLight.color[1],
+                         currLight.color[2]);
+
     glm::vec3 shadowRay = glm::normalize(lightPos - intersectPos);
+    glm::vec3 NORMAL; //init based on circle or triangle
+    glm::vec3 kd; //diffuse
+    glm::vec3 ks; //specular
+    float shiny;
 
     //now check if this ray intersects anything
+    bool intersectTest = testIntersection(intersectPos, shadowRay);
+
+    if(intersectTest == true){
+      return glm::vec3(0,0,0);
+    } else {
+
+      if(type == 1){
+        Sphere curr_sphere = spheres[index];
+        float circle_radius = curr_sphere.radius;
+        kd.x = curr_sphere.color_diffuse[0];
+        kd.y = curr_sphere.color_diffuse[1];
+        kd.z = curr_sphere.color_diffuse[2];
+
+        ks.x = curr_sphere.color_specular[0];
+        ks.y = curr_sphere.color_specular[1];
+        ks.z = curr_sphere.color_specular[2];
+
+        shiny = curr_sphere.shininess;
+
+        //calculate the normal
+        NORMAL.x = (intersectPos.x - curr_sphere.position[0]);
+        NORMAL.y = (intersectPos.y - curr_sphere.position[1]);
+        NORMAL.z = (intersectPos.z - curr_sphere.position[2]);
+        NORMAL = glm::normalize(NORMAL);
+
+        //the reflected vector
+        glm::vec3 reflected = glm::normalize(glm::reflect(shadowRay, NORMAL));
+
+        //now with this info calc color cont
+        float l_dot_n = glm::dot(shadowRay, NORMAL);
+
+        //TODO: FIGURE OUT WHY I NEED TO FLIP THIS
+        glm::vec3 v = (-viewRay);
+        float r_dot_v = glm::dot(-reflected, v);
+
+        if(l_dot_n < 0.0f){l_dot_n = 0.0f;}
+        if(r_dot_v < 0.0f){r_dot_v = 0.0f;}
+
+        float exp_term = std::powf(r_dot_v, shiny);
+
+        glm::vec3 resultColor = lightColor * (kd * l_dot_n) + (ks * exp_term);
+        return resultColor;
 
 
-    // struct Light
-    // {
-    //   double position[3];
-    //   double color[3];
-    // };
+      } else if(type == 2){
+
+      }
 
 
-
+    }
   }
 
 
