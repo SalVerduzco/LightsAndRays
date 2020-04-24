@@ -280,11 +280,126 @@ bool testIntersection(glm::vec3 origin, glm::vec3 ray){
   }
 }
 
+glm::vec3 getTriangleNormal(unsigned int triangleIndex){
+  Triangle triangle = triangles[triangleIndex];
+  glm::vec3 p0(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
+  glm::vec3 a = p0;
+  glm::vec3 b(triangle.v[1].position[0], triangle.v[1].position[1], triangle.v[1].position[2]);
+  glm::vec3 c(triangle.v[2].position[0], triangle.v[2].position[1], triangle.v[2].position[2]);
+  glm::vec3 A = (b-a);
+  glm::vec3 B = (c-a);
+  glm::vec3 n = glm::cross(A,B);
+  return n;
+}
+
+float triangleIntersection(glm::vec3 rayOrigin, glm::vec3 rayDirection, unsigned int triangle_index, bool& does_intersect){
+
+   
+    does_intersect = false;
+    Triangle triangle = triangles[triangle_index];
+
+    //position on the place
+    glm::vec3 p0(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
+    
+    glm::vec3 n = getTriangleNormal(triangle_index);
+
+    //calculate d coeffecient
+    //normal and point on a plane
+
+    //success is being able to live in the present moment that do what you find meaningful
+    float d = -glm::dot(n, p0);
+    glm::vec3 P1 = rayOrigin;
+    glm::vec3 v = rayDirection;
+
+    float n_dot_v = glm::dot(n, v);
+    float n_dot_P1 = glm::dot(n, P1);
+
+
+    float t = -(n_dot_P1 + d)/n_dot_v;
+    does_intersect = true;
+    return t;
+}
+
+float orientation(glm::vec2 p1, glm::vec2 p2, glm::vec2 p3) 
+{ 
+    float val = (p2.y - p1.y) * (p3.x - p2.x) - 
+              (p2.x - p1.x) * (p3.y - p2.y); 
+  
+    if (val == 0.0f) {printf("\n\n\n\n\n\n\nOHNO%f", 0.0f); return 0.0f;}  // colinear 
+  
+    return (val > 0.0f)? 1.0f: -1.0f; // clock or counterclock wise 
+} 
+
+float GetArea(glm::vec2 A, glm::vec2 B, glm::vec2 C){
+
+  float sign = orientation(A, B, C);
+
+}
+
+
+bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex){
+  Triangle triangle = triangles[triangleIndex];
+  glm::vec3 C0(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
+  glm::vec3 C1(triangle.v[1].position[0], triangle.v[1].position[1], triangle.v[1].position[2]);
+  glm::vec3 C2(triangle.v[2].position[0], triangle.v[2].position[1], triangle.v[2].position[2]);
+  //determine how we will collapse the triangle
+  glm::vec3 xy(0.0f, 0.0f, 1.0f);
+  glm::vec3 yz(1.0f, 0.0f, 0.0f);
+  glm::vec3 xz(0.0f, 1.0f, 0.0f);
+
+  //TODO, I CAN CACHE THIS AT START
+  glm::vec3 n = getTriangleNormal(triangleIndex); 
+  unsigned int planeEnum = 0; //0 = xy, 1 = yz, 2 = xz
+  glm::vec3 planeNormal = xy;
+  if(fabs(n.y) > fabs(n.x) && fabs(n.y) > fabs(n.z)){
+    planeNormal = xz;
+    planeEnum = 2;
+  } else if(fabs(n.x) > fabs(n.y) && fabs(n.x) > fabs(n.z)){
+    planeNormal = yz;
+    planeEnum = 1;
+  }
+  glm::vec2 c0;
+  glm::vec2 c1; 
+  glm::vec2 c2;
+  glm::vec2 intersect;
+  //now collapse
+  if(planeEnum == 0){ //xy
+    c0 = glm::vec2(C0.x, C0.y);
+    c1 = glm::vec2(C1.x, C1.y);
+    c2 = glm::vec2(C2.x, C2.y);
+    intersect = glm::vec2(intersectPos.x, intersectPos.y);
+  } else if(planeEnum == 1){ //yz
+    c0 = glm::vec2(C0.y, C0.z);
+    c1 = glm::vec2(C1.y, C1.z);
+    c2 = glm::vec2(C2.y, C2.z);
+    intersect = glm::vec2(intersectPos.y, intersectPos.z);
+  } else { //xz
+    c0 = glm::vec2(C0.x, C0.z);
+    c1 = glm::vec2(C1.x, C1.z);
+    c2 = glm::vec2(C2.x, C2.z);
+    intersect = glm::vec2(intersectPos.x, intersectPos.z);
+  }
+
+  //now in anti-clockwise direction, get areas
+  float alpha = GetArea(c0, c1, c2);
+
+
+
+
+
+
+  //choose the one closest to it, i.e. where the dot product is zero, i.e.
+
+}
+
 /* Shoot a ray from the camera location, to the pixel location, and return the 
 color for that pixel */
 glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightIndex, bool& include_ambient){
   glm::vec3 cameraLocation(0.0f,0.0f,0.0f);
   glm::vec3 pixelLocation = pixelWorldVector[pixelY][pixelX];
+
+
+
   glm::vec3 ray = pixelLocation - cameraLocation;
   glm::vec3 viewRay = glm::normalize(ray);
 
@@ -332,30 +447,27 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
   }
 
   //TODO: Also check for triangles, and update t_min, type, and index
-
+  glm::vec3 triangleIntersectPos;
   for(int i = 0; i<num_triangles; i++){
-            // struct Vertex
-            // {
-            //   double position[3];
-            //   double color_diffuse[3];
-            //   double color_specular[3];
-            //   double normal[3];
-            //   double shininess;
-            // };
+            
+    bool does_intersect = false;
+    //d also t?
+    float t = triangleIntersection(cameraLocation, viewRay, i, does_intersect);
+    if(does_intersect == false){
+      continue; //nothing
+    }
 
-            // struct Triangle
-            // {
-            //   Vertex v[3];
-            // };
-    Triangle triangle = triangles[i];
+    if( t < t_min || t < epsilon){
+      continue;
+    }
+    //we have a position of intersection on the plane
+    glm::vec3 intersec = viewRay * t;
 
-    //position on the place
-    glm::vec3 p0(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
-    glm::vec3 a = p0;
-    glm::vec3 b(triangle.v[1].position[0], triangle.v[1].position[1], triangle.v[1].position[2]);
-    glm::vec3 c(triangle.v[2].position[0], triangle.v[2].position[1], triangle.v[2].position[2]);
+    //now determine if the intersec was actually in the triangle
+    bool inTriangle = checkInsideTriangle(intersec, i);
+    
 
-
+    //now check if this plane hit is also inside triangle, if it is, test shadow/PHONG
 
   }
 
