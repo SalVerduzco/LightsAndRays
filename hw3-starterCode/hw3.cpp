@@ -100,6 +100,10 @@ int num_lights = 0;
 void plot_pixel_display(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
+bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex);
+float triangleIntersection(glm::vec3 rayOrigin, glm::vec3 rayDirection, unsigned int triangle_index, bool& does_intersect);
+
+
 //holds the "location" in the real world of a pixel
 std::vector<std::vector<glm::vec3> > pixelWorldVector;
 std::vector<std::vector<glm::vec3> > finalColor;
@@ -218,7 +222,7 @@ void generatePixelWorld(){
       //printf("x:%f y:%f z%f \n", travel_pixel.x, travel_pixel.y, travel_pixel.z);
 
     }
-    printf("travel.x = %f\n", travel_pixel.x);
+    //printf("travel.x = %f\n", travel_pixel.x);
 
     travel_pixel.x = topLeft.x; //reset x
     travel_pixel.y -= bottomHop; //go to lower row
@@ -228,8 +232,9 @@ void generatePixelWorld(){
 
 //given an origin and a ray, check if this ray intersects anything
 bool testIntersection(glm::vec3 origin, glm::vec3 ray){
-
   glm::vec3 viewRay = glm::normalize(ray);
+
+  float epsilon2 = 1.0f;; //greater for intersections
 
   //check for intersection with all circles 
   int index = -1;
@@ -263,20 +268,47 @@ bool testIntersection(glm::vec3 origin, glm::vec3 ray){
     float t0 = (-b + term)/2;
     float t1 = (-b - term)/2;
 
-    if(t0 > 0 && t0 < t_min && t0>epsilon){
+
+    if(t0 > 0.0f && t0 < t_min && t0 > epsilon){
+      printf("sphere");
       t_min = t0;
       index = i;
     } 
-    if(t1 > 0 && t1 < t_min && t1>epsilon){
+    if(t1 > 0.0f && t1 < t_min && t1 > epsilon){
+      printf("sphere");
       t_min = t1;
       index = i;
     }
   }
 
+  for(int i = 0; i<num_triangles; i++){
+    //find intersection with plane of triange
+    bool dummy = false;
+    float t = triangleIntersection(origin, ray, i, dummy);
+    glm::vec3 intersect = origin + (viewRay * t);
+
+    //check if intersect is inside triangle
+    bool isInside = checkInsideTriangle(intersect, i);
+
+    //only consider for update if distance is great enough
+    glm::vec3 dist = (intersect - origin);
+    // if(glm::length(dist) < 0.0000f){
+    //   continue;
+    // }
+
+    if(isInside){
+      if(t > 0.0f && t < t_min && t>epsilon){
+        t_min = t;
+        index = i;
+      }
+    }
+
+  }
+
   if(index == -1){
-    return false; //didn't intersect any circles
+    return false; //didn't intersect any circles or triangles
   } else {
-    return true; //intersected a circle
+    return true; //intersected a circle or triangle
   }
 }
 
@@ -306,7 +338,6 @@ float triangleIntersection(glm::vec3 rayOrigin, glm::vec3 rayDirection, unsigned
     //calculate d coeffecient
     //normal and point on a plane
 
-    //success is being able to live in the present moment that do what you find meaningful
     float d = -glm::dot(n, p0);
     glm::vec3 P1 = rayOrigin;
     glm::vec3 v = rayDirection;
@@ -325,15 +356,15 @@ float orientation(glm::vec2 p1, glm::vec2 p2, glm::vec2 p3)
     float val = (p2.y - p1.y) * (p3.x - p2.x) - 
               (p2.x - p1.x) * (p3.y - p2.y); 
   
-    if (val == 0.0f) {printf("\n\n\n\n\n\n\nOHNO%f", 0.0f); return 0.0f;}  // colinear 
+    if (val == 0.0f) {printf("\n\n\n\n\n\n\nOHNO%f", 0.0f); return 1.0f;}  // colinear 
   
-    return (val > 0.0f)? 1.0f: -1.0f; // clock or counterclock wise 
+    return (val > 0.0f)? 1.0f: 1.0f; // clock or counterclock wise 
 } 
 
 float GetArea(glm::vec2 A, glm::vec2 B, glm::vec2 C){
-
   float sign = orientation(A, B, C);
-
+  float area = sign*0.5f*((B.x - A.x)*(C.y-A.y) - (C.x - A.x)*(B.y-A.y));
+  return area;
 }
 
 
@@ -347,7 +378,6 @@ bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex){
   glm::vec3 yz(1.0f, 0.0f, 0.0f);
   glm::vec3 xz(0.0f, 1.0f, 0.0f);
 
-  //TODO, I CAN CACHE THIS AT START
   glm::vec3 n = getTriangleNormal(triangleIndex); 
   unsigned int planeEnum = 0; //0 = xy, 1 = yz, 2 = xz
   glm::vec3 planeNormal = xy;
@@ -358,6 +388,7 @@ bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex){
     planeNormal = yz;
     planeEnum = 1;
   }
+
   glm::vec2 c0;
   glm::vec2 c1; 
   glm::vec2 c2;
@@ -380,8 +411,27 @@ bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex){
     intersect = glm::vec2(intersectPos.x, intersectPos.z);
   }
 
+  float denominator = GetArea(c0,c1,c2);
   //now in anti-clockwise direction, get areas
-  float alpha = GetArea(c0, c1, c2);
+  float alpha = GetArea(intersect, c1, c2)/denominator;
+  float beta = GetArea(c0, intersect, c2)/denominator;
+  float gamma = 1.0f - alpha - beta;
+
+  if(alpha < 0.0f || alpha > 1.0f){
+    return false;
+  }
+  if(beta < 0.0f || beta > 1.0f){
+    return false;
+  }
+  if(gamma < 0.0f || gamma > 1.0f){
+    return false;
+  }
+
+  if(alpha + beta + gamma < 0.99f || alpha + beta + gamma > 1.01f){
+    return false;
+  }
+
+  return true;
 
 
 
@@ -397,8 +447,6 @@ color for that pixel */
 glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightIndex, bool& include_ambient){
   glm::vec3 cameraLocation(0.0f,0.0f,0.0f);
   glm::vec3 pixelLocation = pixelWorldVector[pixelY][pixelX];
-
-
 
   glm::vec3 ray = pixelLocation - cameraLocation;
   glm::vec3 viewRay = glm::normalize(ray);
@@ -457,7 +505,7 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
       continue; //nothing
     }
 
-    if( t < t_min || t < epsilon){
+    if( t > t_min || t < epsilon){
       continue;
     }
     //we have a position of intersection on the plane
@@ -465,18 +513,24 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
 
     //now determine if the intersec was actually in the triangle
     bool inTriangle = checkInsideTriangle(intersec, i);
-    
 
+    if(inTriangle){
+      //now check if this can update current t_min
+      if(t > 0.0f && t < t_min && t > epsilon){
+        t_min = t;
+        type = 2;
+        index = i;
+      }
+    }
     //now check if this plane hit is also inside triangle, if it is, test shadow/PHONG
-
   }
 
   //after this if still index == -1, intersects nothing
   //else send shadow ray from pos
-
   if(index == -1){
-    return glm::vec3(1,1,1);
     include_ambient = false;
+
+    return glm::vec3(1,1,1);
   } else {
     include_ambient = true;
     //calculate the value from lightIndex
@@ -543,7 +597,8 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
 
 
       } else if(type == 2){
-
+        //interpolate the colors
+        return glm::vec3(0,1,0);
       }
 
 
