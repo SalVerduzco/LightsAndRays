@@ -100,7 +100,7 @@ int num_lights = 0;
 void plot_pixel_display(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel_jpeg(int x,int y,unsigned char r,unsigned char g,unsigned char b);
 void plot_pixel(int x,int y,unsigned char r,unsigned char g,unsigned char b);
-bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex);
+bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex, float& alpha1, float& beta1, float& gamma1);
 float triangleIntersection(glm::vec3 rayOrigin, glm::vec3 rayDirection, unsigned int triangle_index, bool& does_intersect);
 
 
@@ -288,7 +288,8 @@ bool testIntersection(glm::vec3 origin, glm::vec3 ray){
     glm::vec3 intersect = origin + (viewRay * t);
 
     //check if intersect is inside triangle
-    bool isInside = checkInsideTriangle(intersect, i);
+    float dummy1,dummy2,dummy3;
+    bool isInside = checkInsideTriangle(intersect, i, dummy1, dummy2, dummy3);
 
     //only consider for update if distance is great enough
     glm::vec3 dist = (intersect - origin);
@@ -368,7 +369,7 @@ float GetArea(glm::vec2 A, glm::vec2 B, glm::vec2 C){
 }
 
 
-bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex){
+bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex, float& alpha1, float& beta1, float& gamma1){
   Triangle triangle = triangles[triangleIndex];
   glm::vec3 C0(triangle.v[0].position[0], triangle.v[0].position[1], triangle.v[0].position[2]);
   glm::vec3 C1(triangle.v[1].position[0], triangle.v[1].position[1], triangle.v[1].position[2]);
@@ -415,7 +416,7 @@ bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex){
   //now in anti-clockwise direction, get areas
   float alpha = GetArea(intersect, c1, c2)/denominator;
   float beta = GetArea(c0, intersect, c2)/denominator;
-  float gamma = 1.0f - alpha - beta;
+  float gamma2 = 1.0f - alpha - beta;
 
   if(alpha < 0.0f || alpha > 1.0f){
     return false;
@@ -423,22 +424,59 @@ bool checkInsideTriangle(glm::vec3 intersectPos, unsigned int triangleIndex){
   if(beta < 0.0f || beta > 1.0f){
     return false;
   }
-  if(gamma < 0.0f || gamma > 1.0f){
+  if(gamma2 < 0.0f || gamma2 > 1.0f){
     return false;
   }
 
-  if(alpha + beta + gamma < 0.99f || alpha + beta + gamma > 1.01f){
+  if(alpha + beta + gamma2 < 0.99f || alpha + beta + gamma2 > 1.01f){
     return false;
   }
+
+  alpha1 = alpha;
+  beta1 = beta;
+  gamma1 = gamma2;
+
+
 
   return true;
 
-
-
-
-
-
   //choose the one closest to it, i.e. where the dot product is zero, i.e.
+
+}
+
+
+glm::vec3 getTriangleKD(glm::vec3 intersectPos, unsigned int index, float alpha1, float beta1, float gamma1){
+
+  glm::vec3 kd1;
+  glm::vec3 kd2;
+  glm::vec3 kd3;
+  Triangle currTriangle = triangles[index];
+
+  kd1.x = currTriangle.v[0].color_diffuse[0];
+  kd1.y = currTriangle.v[0].color_diffuse[1];
+  kd1.z = currTriangle.v[0].color_diffuse[2];
+
+  kd2.x = currTriangle.v[1].color_diffuse[0];
+  kd2.y = currTriangle.v[1].color_diffuse[1];
+  kd2.z = currTriangle.v[1].color_diffuse[2];
+
+  kd3.x = currTriangle.v[2].color_diffuse[0];
+  kd3.y = currTriangle.v[2].color_diffuse[1];
+  kd3.z = currTriangle.v[2].color_diffuse[2];
+
+  glm::vec3 result = alpha*(kd1) + beta*(kd2) + gamma*(kd3);
+
+
+}
+glm::vec3 getTriangleKS(glm::vec3 intersectPos, unsigned int index){
+
+}
+
+glm::vec3 getTriangleShiny(glm::vec3 intersectPos, unsigned int index){
+
+}
+
+glm::vec3 getTriangleNormal(glm::vec3 intersectPos, unsigned int index){
 
 }
 
@@ -495,6 +533,14 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
   }
 
   //TODO: Also check for triangles, and update t_min, type, and index
+
+  glm::vec3 triangleKD;
+  glm::vec3 triangleKS;
+  float shiny;
+  glm::vec3 triangleNormal;
+  float alpha1, beta1, gamma1;
+
+
   glm::vec3 triangleIntersectPos;
   for(int i = 0; i<num_triangles; i++){
             
@@ -512,7 +558,7 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
     glm::vec3 intersec = viewRay * t;
 
     //now determine if the intersec was actually in the triangle
-    bool inTriangle = checkInsideTriangle(intersec, i);
+    bool inTriangle = checkInsideTriangle(intersec, i, alpha1, beta1, gamma1);
 
     if(inTriangle){
       //now check if this can update current t_min
@@ -598,7 +644,12 @@ glm::vec3 shootRay(unsigned int pixelX, unsigned int pixelY, unsigned int lightI
 
       } else if(type == 2){
         //interpolate the colors
-        return glm::vec3(0,1,0);
+        Triangle currTriangle = triangles[index];
+        //set kd
+
+        //using alpha beta and gamma interpolate
+        triangleKS = getTriangleKS(intersectPos, index, alpha1, beta1, gamma1);
+      
       }
 
 
